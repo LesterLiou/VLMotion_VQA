@@ -65,6 +65,52 @@ def parse_candidate_labels(text: str, valid_labels):
     return labels
 
 
+SELECTION_MARKER = "__SELECTED_LABELS__:"
+
+
+def parse_selected_labels(text: str, valid_labels):
+    """Read the model's machine-only selection line without exposing it to users."""
+    valid = set(valid_labels)
+    if SELECTION_MARKER not in text:
+        return []
+    metadata = text.rsplit(SELECTION_MARKER, 1)[1].splitlines()[0]
+    return [
+        label
+        for label in re.findall(r'\b(?:[A-Z]|P\d+)\b', metadata.upper())
+        if label in valid
+    ]
+
+
+def strip_selection_metadata(text: str):
+    if SELECTION_MARKER not in text:
+        return text.strip()
+    return text.rsplit(SELECTION_MARKER, 1)[0].strip()
+
+
+def is_candidate_label_only(text: str):
+    return bool(re.fullmatch(
+        r'\s*(?:[A-Z]|P\d+)(?:\s*[,，]\s*(?:[A-Z]|P\d+))*[.!。]?\s*',
+        text or "",
+        flags=re.IGNORECASE,
+    ))
+
+
+def natural_selection_fallback(prompt: str, direction=None):
+    """Return a coordinate-free answer if a point-trained model ignores the prompt."""
+    is_chinese = bool(re.search(r'[\u3400-\u9fff]', prompt or ""))
+    if is_chinese:
+        if direction == "up":
+            return "已找到上行按鈕，請按下畫面中對應的按鈕。"
+        if direction == "down":
+            return "已找到下行按鈕，請按下畫面中對應的按鈕。"
+        return "已找到符合要求的按鈕，請按下畫面中標示的位置。"
+    if direction == "up":
+        return "I found the up button. Please press the corresponding button shown in the image."
+    if direction == "down":
+        return "I found the down button. Please press the corresponding button shown in the image."
+    return "I found the requested button. Please press the indicated location in the image."
+
+
 def snap_coords_to_candidates(coords, detections, max_points):
     labels = []
     for coord in coords:
@@ -983,7 +1029,8 @@ class ModelWorker:
                  mm_sam3_mask_gamma=1.0,
                  mm_sam3_device="cpu",
                  mm_sam3_dtype="auto",
-                 mm_sam3_unload_after_forward=False):
+                 mm_sam3_unload_after_forward=False,
+                 enable_latency_timing=False):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
         self.worker_id = worker_id
@@ -1016,6 +1063,7 @@ class ModelWorker:
             mm_sam3_device=mm_sam3_device,
             mm_sam3_dtype=mm_sam3_dtype,
             mm_sam3_unload_after_forward=mm_sam3_unload_after_forward,
+            enable_latency_timing=enable_latency_timing,
         )
 
     def _apply_sam3_runtime_config(self, mm_use_sam3_conditioning,
@@ -1024,7 +1072,8 @@ class ModelWorker:
                                    mm_sam3_mask_gamma,
                                    mm_sam3_device,
                                    mm_sam3_dtype,
-                                   mm_sam3_unload_after_forward):
+                                   mm_sam3_unload_after_forward,
+                                   enable_latency_timing):
         mm_use_sam3_conditioning = bool(mm_use_sam3_conditioning)
         mm_sam3_blend_alpha = float(mm_sam3_blend_alpha)
         mm_sam3_mask_gamma = float(mm_sam3_mask_gamma)
@@ -1043,6 +1092,7 @@ class ModelWorker:
         self.model.config.mm_sam3_device = mm_sam3_device
         self.model.config.mm_sam3_dtype = mm_sam3_dtype
         self.model.config.mm_sam3_unload_after_forward = mm_sam3_unload_after_forward
+        self.model.config.enable_latency_timing = bool(enable_latency_timing)
 
         vision_tower = self.model.get_vision_tower()
         if vision_tower is not None:
@@ -1053,6 +1103,7 @@ class ModelWorker:
             vision_tower.mm_sam3_device = mm_sam3_device
             vision_tower.mm_sam3_dtype = mm_sam3_dtype
             vision_tower.mm_sam3_unload_after_forward = mm_sam3_unload_after_forward
+            vision_tower.enable_latency_timing = bool(enable_latency_timing)
 
         logger.info(
             "SAM3 conditioning config: "
@@ -1123,19 +1174,27 @@ class ModelWorker:
 
         prompt = params["prompt"]
         ori_prompt = prompt
+        task_type = str(params.get("task_type", "general_vqa"))
+        use_sam3_candidates = str2bool(str(params.get("use_sam3_candidates", True)))
         images = params.get("images", None)
+        has_image_input = images is not None and len(images) > 0
         num_image_tokens = 0
         sam3_candidates = []
+        image_preprocess_ms = 0.0
         if images is not None and len(images) > 0:
             if len(images) > 0:
                 if len(images) != prompt.count(DEFAULT_IMAGE_TOKEN):
                     raise ValueError("Number of images does not match number of <image> tokens in prompt")
 
+                preprocess_started = time.perf_counter()
                 pil_images = [load_image_from_base64(image) for image in images]
                 image_sizes = [image.size for image in pil_images]
-                if pil_images:
+                if pil_images and use_sam3_candidates:
                     sam3_candidates = detect_sam3_candidates(pil_images[0], args)
                 images = process_images(pil_images, image_processor, model.config)
+                image_preprocess_ms = (
+                    time.perf_counter() - preprocess_started
+                ) * 1000.0
 
                 image_dtype = amp_dtype if amp_dtype is not None else torch.float16
                 if type(images) is list:
@@ -1168,34 +1227,24 @@ class ModelWorker:
                             f"{det['label']}: center=({cx:.3f}, {cy:.3f}), score={det['score']:.3f}{layout_text}"
                         )
                     if args.sam3_max_points == 1:
-                        format_suffix = "\nAnswer with exactly one candidate label only, e.g. A."
+                        selection_suffix = "Select exactly one candidate label"
                     else:
-                        format_suffix = (
-                            f"\nAnswer with at most {args.sam3_max_points} candidate labels only, "
-                            "e.g. A, C."
-                        )
+                        selection_suffix = f"Select at most {args.sam3_max_points} candidate labels"
                     prompt = append_to_last_user_turn(prompt, (
                         "\nSAM3 found these candidate buttons:\n"
                         + "\n".join(candidate_lines)
                         + "\nYou must choose only from the SAM3 candidate labels above. "
                         "Use the role field when the request asks for up/down buttons. "
-                        "Do not invent a new coordinate."
-                        + format_suffix
+                        "Do not invent a new coordinate. "
+                        "Reply to the user in natural language without coordinates or candidate labels. "
+                        "Match the language used by the user. Then add a final machine-readable line "
+                        f"in the form `{SELECTION_MARKER} A, C`. {selection_suffix} for that final line."
                     ))
-                elif args.sam3_max_points == 1:
+                elif task_type != "risk_assessment":
                     prompt = append_to_last_user_turn(prompt, (
-                        "\nChoose the single best point only. "
-                        "Your answer must be formatted as exactly one tuple, i.e. (x, y), "
-                        "where x and y are normalized coordinates between 0 and 1."
-                    ))
-                else:
-                    prompt = append_to_last_user_turn(prompt, (
-                        f"\nChoose at most {args.sam3_max_points} points. "
-                        "Your answer should be formatted as a list of tuples, "
-                        "i.e. [(x1, y1), (x2, y2), ...], where each tuple contains "
-                        "the x and y coordinates of a point satisfying the conditions above. "
-                        "The coordinates should be between 0 and 1, indicating the normalized "
-                        "pixel locations of the points in the image."
+                        "\nAnswer the user's request naturally in the same language as the user. "
+                        "Describe what you found or what the user should do without outputting "
+                        "coordinates or coordinate tuples."
                     ))
 
                 num_image_tokens = prompt.count(replace_token) * model.get_vision_tower().num_patches
@@ -1274,6 +1323,7 @@ class ModelWorker:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
+        generation_started = time.perf_counter()
         thread = Thread(target=run_generate)
         thread.start()
 
@@ -1283,6 +1333,7 @@ class ModelWorker:
             if stop_str and generated_text.endswith(stop_str):
                 generated_text = generated_text[:-len(stop_str)]
         thread.join()
+        model_generate_ms = (time.perf_counter() - generation_started) * 1000.0
         if generation_error:
             raise generation_error[0]
 
@@ -1292,7 +1343,10 @@ class ModelWorker:
 
         if sam3_candidates:
             label_to_coord = {det["label"]: det["center"] for det in sam3_candidates}
-            selected_labels = parse_candidate_labels(completion_text, label_to_coord.keys())
+            selected_labels = parse_selected_labels(completion_text, label_to_coord.keys())
+            if not selected_labels and is_candidate_label_only(completion_text):
+                # Backward compatibility for models that still answer with bare labels.
+                selected_labels = parse_candidate_labels(completion_text, label_to_coord.keys())
             generated_coords = parse_coords(completion_text)
             direction = infer_direction_request(ori_prompt)
             if direction is None:
@@ -1354,24 +1408,43 @@ class ModelWorker:
                 print(f"No usable model selection; falling back to top SAM3 labels: {selected_labels}")
             if args.sam3_max_points > 0:
                 selected_labels = selected_labels[:args.sam3_max_points]
-            coords = [label_to_coord[label] for label in selected_labels]
-            if not generated_coords and selected_labels:
-                response_text = ", ".join(
-                    f"({round(nx, 4)}, {round(ny, 4)})"
-                    for nx, ny in coords
-                )
-            elif generated_coords and selected_labels:
-                snapped_points = [
-                    (round(nx, 4), round(ny, 4))
-                    for nx, ny in coords
-                ]
-                response_text = (
-                    f"{completion_text}\n"
-                    f"__SNAPPED_POINTS__:{json.dumps(snapped_points)}"
-                )
+            visible_response = strip_selection_metadata(completion_text)
+            # Point-specialized checkpoints may ignore the new instruction. Never
+            # expose their coordinate-only response; provide a natural-language
+            # sentence instead.
+            if generated_coords or not visible_response or is_candidate_label_only(visible_response):
+                visible_response = natural_selection_fallback(ori_prompt, direction)
+            response_text = visible_response
             print(f"Selected SAM3 labels: {selected_labels}")
+        elif has_image_input and parse_coords(completion_text):
+            # SAM3 can be disabled or return no detections. A point-specialized
+            # checkpoint may still emit tuples, so keep the user-facing response
+            # natural in that case as well.
+            response_text = natural_selection_fallback(
+                ori_prompt,
+                infer_direction_request(ori_prompt),
+            )
 
-        yield json.dumps({"text": ori_prompt + response_text, "error_code": 0}).encode() + b"\0"
+        response = {"text": ori_prompt + response_text, "error_code": 0}
+        if getattr(self.model.config, 'enable_latency_timing', False):
+            tower = self.model.get_vision_tower()
+            vision_latency = getattr(tower, 'last_latency_ms', {})
+            vision_total_ms = float(vision_latency.get('vision_total_ms', 0.0))
+            response['latency_ms'] = {
+                'image_decode_preprocess_ms': round(image_preprocess_ms, 3),
+                'sam3_conditioning_ms': round(
+                    float(vision_latency.get('sam3_conditioning_ms', 0.0)), 3
+                ),
+                'clip_encoder_ms': round(
+                    float(vision_latency.get('clip_encoder_ms', 0.0)), 3
+                ),
+                'vision_total_ms': round(vision_total_ms, 3),
+                'model_generate_ms': round(model_generate_ms, 3),
+                'llm_projector_estimated_ms': round(
+                    max(0.0, model_generate_ms - vision_total_ms), 3
+                ),
+            }
+        yield json.dumps(response).encode() + b"\0"
 
     def generate_stream_gate(self, params):
         try:
@@ -1435,10 +1508,10 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=22000)
     parser.add_argument("--worker-address", type=str,
-        default="http://10.0.0.1:22000")
+        default="http://127.0.0.1:22000")
     parser.add_argument("--controller-address", type=str,
-        default="http://10.0.0.1:11000")
-    parser.add_argument("--model-path", type=str, default="PME033541/vla13")
+        default="http://127.0.0.1:11000")
+    parser.add_argument("--model-path", type=str, default="liuhaotian/llava-v1.5-13b")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--model-name", type=str)
     parser.add_argument("--device", type=str, default="cuda")
@@ -1456,6 +1529,7 @@ if __name__ == "__main__":
     parser.add_argument("--mm-sam3-device", type=str, default="cuda")
     parser.add_argument("--mm-sam3-dtype", type=str, default="bfloat16")
     parser.add_argument("--mm-sam3-unload-after-forward", type=str2bool, default=False)
+    parser.add_argument("--enable-latency-timing", type=str2bool, default=False)
     parser.add_argument("--sam3-detect-buttons", type=str2bool, default=True)
     parser.add_argument("--sam3-detect-text", type=str, default="button")
     parser.add_argument("--sam3-detect-threshold", type=float, default=0.25)
@@ -1487,7 +1561,8 @@ if __name__ == "__main__":
                          mm_sam3_mask_gamma=args.mm_sam3_mask_gamma,
                          mm_sam3_device=args.mm_sam3_device,
                          mm_sam3_dtype=args.mm_sam3_dtype,
-                         mm_sam3_unload_after_forward=args.mm_sam3_unload_after_forward)
+                         mm_sam3_unload_after_forward=args.mm_sam3_unload_after_forward,
+                         enable_latency_timing=args.enable_latency_timing)
     if not args.no_register:
         worker.register_to_controller()
         heart_beat_thread = threading.Thread(

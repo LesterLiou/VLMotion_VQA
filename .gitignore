@@ -68,3 +68,22 @@ Thumbs.db
 wit_token.txt
 
 *.jpg
+
+# Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v
+*.wmv
+*.flv
+*.mpeg
+*.mpg
+
+*.usd
+
+install/
+.cache/
+/install/
+.cache/

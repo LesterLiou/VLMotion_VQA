@@ -1,0 +1,25 @@
+risk_vqa:
+  ros__parameters:
+    image_topic: /d435i/color/image_raw/compressed
+    use_compressed_image: true
+    controller_url: http://127.0.0.1:11000
+    model_name: ""
+    semantic_response_mode: compact
+    evaluation_period_s: 2.0
+    prediction_horizon_s: 10.0
+    request_timeout_s: 60.0
+    max_new_tokens: 384
+    use_cache: false
+    jpeg_quality: 85
+    work_context: Robot manipulation and navigation in a shared workspace
+    allowed_actions:
+      - CONTINUE
+      - SLOW_DOWN
+      - WAIT
+      - STOP
+      - REPLAN
+      - ALERT_HUMAN
+    report_topic: /risk_vqa/report
+    text_topic: /risk_vqa/text
+    action_topic: /risk_vqa/action_suggestion
+    status_topic: /risk_vqa/status

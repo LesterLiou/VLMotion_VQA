@@ -1,0 +1,41 @@
+video_ttc:
+  ros__parameters:
+    video_path: /workspace/input.mp4
+    loop_video: false
+    playback_rate: 1.0
+    show_window: true
+    jpeg_quality: 85
+    yolo_model: yolov8n.pt
+    yolo_device: "0"
+    yolo_confidence: 0.35
+    yolo_iou: 0.50
+    yolo_image_size: 640
+    yolo_quantize: 16
+    tracker_config: bytetrack.yaml
+    roi: [0.20, 0.15, 0.80, 0.95]
+    warning_ttc_s: 3.0
+    critical_ttc_s: 1.0
+    min_growth_rate: 0.04
+    min_area_ratio: 0.002
+    critical_area_ratio: 0.08
+
+risk_vqa_semantic:
+  ros__parameters:
+    image_topic: /risk_vqa/video/image_raw/compressed
+    use_compressed_image: true
+    controller_url: http://127.0.0.1:11000
+    model_name: ""
+    analysis_mode: person_semantic
+    semantic_response_mode: compact
+    semantic_question: How could the visible people affect the current work?
+    evaluation_period_s: 2.0
+    max_new_tokens: 128
+    use_cache: true
+    prediction_horizon_s: 10.0
+    work_context: Robot manipulation and navigation in a shared workspace
+
+risk_fusion:
+  ros__parameters:
+    realtime_action_topic: /risk_vqa/realtime_action
+    semantic_action_topic: /risk_vqa/action_suggestion
+    semantic_timeout_s: 10.0

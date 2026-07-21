@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import time
 import warnings
 
 from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
@@ -22,6 +23,8 @@ class CLIPVisionTower(nn.Module):
         self.mm_sam3_device = getattr(args, 'mm_sam3_device', 'cpu')
         self.mm_sam3_dtype = getattr(args, 'mm_sam3_dtype', 'auto')
         self.mm_sam3_unload_after_forward = getattr(args, 'mm_sam3_unload_after_forward', False)
+        self.enable_latency_timing = getattr(args, 'enable_latency_timing', False)
+        self.last_latency_ms = {}
         self.sam3_is_loaded = False
 
         if not delay_load:
@@ -186,17 +189,47 @@ class CLIPVisionTower(nn.Module):
 
     @torch.no_grad()
     def forward(self, images):
+        if self.enable_latency_timing and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        vision_started = time.perf_counter()
+        conditioning_ms = 0.0
+        clip_ms = 0.0
         if type(images) is list:
             image_features = []
             for image in images:
+                stage_started = time.perf_counter()
                 image_input = self._apply_image_conditioning(image.unsqueeze(0))
+                if self.enable_latency_timing and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                conditioning_ms += (time.perf_counter() - stage_started) * 1000.0
+                stage_started = time.perf_counter()
                 image_forward_out = self.vision_tower(image_input.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
                 image_feature = self.feature_select(image_forward_out).to(image.dtype)
+                if self.enable_latency_timing and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                clip_ms += (time.perf_counter() - stage_started) * 1000.0
                 image_features.append(image_feature)
         else:
+            stage_started = time.perf_counter()
             image_input = self._apply_image_conditioning(images)
+            if self.enable_latency_timing and torch.cuda.is_available():
+                torch.cuda.synchronize()
+            conditioning_ms = (time.perf_counter() - stage_started) * 1000.0
+            stage_started = time.perf_counter()
             image_forward_outs = self.vision_tower(image_input.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
             image_features = self.feature_select(image_forward_outs).to(images.dtype)
+            if self.enable_latency_timing and torch.cuda.is_available():
+                torch.cuda.synchronize()
+            clip_ms = (time.perf_counter() - stage_started) * 1000.0
+
+        if self.enable_latency_timing:
+            self.last_latency_ms = {
+                'sam3_conditioning_ms': (
+                    conditioning_ms if self.mm_use_sam3_conditioning else 0.0
+                ),
+                'clip_encoder_ms': clip_ms,
+                'vision_total_ms': (time.perf_counter() - vision_started) * 1000.0,
+            }
 
         return image_features
 

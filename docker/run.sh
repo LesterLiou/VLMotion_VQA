@@ -59,23 +59,42 @@ if ! docker ps --format '{{.Names}}' | grep -wq "${CONTAINER_NAME}"; then
   docker start "${CONTAINER_NAME}" >/dev/null
 fi
 
-# 設置X11權限
-echo "設置 X11 權限..."
-# 先允許任何用戶連接到X11服務器（臨時解決方案）
-xhost +local: 2>/dev/null || true
+# 傳遞目前 terminal 的 X11 display。SSH forwarding 通常是 localhost:10.0，
+# 不可固定成 :0 或 :1。
+DISPLAY_ARGS=()
+if [[ -n "${DISPLAY-}" ]]; then
+  echo "設定 X11 display: ${DISPLAY}"
+  DISPLAY_ARGS=(-e "DISPLAY=${DISPLAY}" -e "XAUTHORITY=/root/.Xauthority")
+  docker exec -u root "${CONTAINER_NAME}" bash -c \
+    'touch /root/.Xauthority && chmod 600 /root/.Xauthority'
 
-# 在容器內設置X11認證
-docker exec -u root "${CONTAINER_NAME}" bash -c '
-    # 創建root用戶的.Xauthority文件
-    if [ ! -f /root/.Xauthority ]; then
-        touch /root/.Xauthority
-        chmod 600 /root/.Xauthority
+  # SSH X11 forwarding 使用 MIT-MAGIC-COOKIE。把目前 display 的 cookie 合併進
+  # container，ffff family 可同時處理 host/container hostname 不同的情況。
+  if command -v xauth >/dev/null 2>&1; then
+    XAUTH_ENTRY="$(xauth nlist "${DISPLAY}" 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${XAUTH_ENTRY}" ]]; then
+      if docker exec -u root "${CONTAINER_NAME}" \
+          bash -c 'command -v xauth >/dev/null 2>&1'; then
+        printf '%s\n' "${XAUTH_ENTRY}" \
+          | sed 's/^..../ffff/' \
+          | docker exec -i -u root "${CONTAINER_NAME}" xauth nmerge -
+      else
+        echo "警告：container 沒有 xauth；請重新 build image。暫時略過 X11 cookie 匯入" >&2
+      fi
+    else
+      echo "警告：找不到 ${DISPLAY} 的 xauth cookie，SSH GUI 可能無法連線" >&2
     fi
-    
-    # 清空現有的認證並添加新的
-    xauth remove :1 2>/dev/null || true
-    echo "'"$(xauth list | grep ":1 " | head -1)"'" | xauth merge -
-' 2>/dev/null || true
+  else
+    echo "警告：主機沒有 xauth，SSH GUI 可能無法連線" >&2
+  fi
+
+  # 本機實體 display 使用 Unix socket 時，只授權 local root，不開放所有 local users。
+  if [[ "${DISPLAY}" == :* ]] && command -v xhost >/dev/null 2>&1; then
+    xhost +SI:localuser:root >/dev/null 2>&1 || true
+  fi
+else
+  echo "未設定 DISPLAY；將以 headless 模式進入 container"
+fi
 
 echo "進入容器: ${CONTAINER_NAME}"
 if [[ -n "${DOMAIN_ID}" ]]; then
@@ -87,9 +106,9 @@ fi
 
 echo "會在容器內自動 source /workspace/environment.sh（ROS_DOMAIN_ID=${RUNTIME_DOMAIN_ID}）"
 if [[ -n "${EXEC_USER}" ]]; then
-  exec docker exec -u "${EXEC_USER}" -it "${CONTAINER_NAME}" bash -lc \
+  exec docker exec "${DISPLAY_ARGS[@]}" -u "${EXEC_USER}" -it "${CONTAINER_NAME}" bash -lc \
     "if [ -f /workspace/environment.sh ]; then source /workspace/environment.sh ${RUNTIME_DOMAIN_ID}; else echo '提示: /workspace/environment.sh 不存在，略過'; fi; exec bash -i"
 else
-  exec docker exec -it "${CONTAINER_NAME}" bash -lc \
+  exec docker exec "${DISPLAY_ARGS[@]}" -it "${CONTAINER_NAME}" bash -lc \
     "if [ -f /workspace/environment.sh ]; then source /workspace/environment.sh ${RUNTIME_DOMAIN_ID}; else echo '提示: /workspace/environment.sh 不存在，略過'; fi; exec bash -i"
 fi
