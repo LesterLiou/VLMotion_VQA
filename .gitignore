@@ -1,75 +1,83 @@
-# Python
+# Python builds, tests, caches and virtual environments
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
 .Python
 *.egg-info/
-dist/
-build/
 *.egg
+build/
+dist/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 .dmypy.json
 dmypy.json
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 *.cover
 .hypothesis/
-.ipynb_checkpoints
+.ipynb_checkpoints/
+.venv/
+.venv-*/
+venv/
+venv-*/
+.tox/
+.nox/
+.cache/
 
-# ROS2
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
-*.pyc
-*.pyo
+# Generated ROS workspaces (at the root or inside ros2_ws)
+install/
+log/
+logs/
 
-# IDE
+# Local editor, OS and assistant state
 .vscode/
 .idea/
+.agents/
+.codex/
+.aws/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
 
-# Logs
-*.log
-log/
-
-# Environment
+# Credentials and machine-specific environment; keep distributable examples
 .env
+.env.*
 *.env
+!.env.example
+!.env.template
+wit_token.txt
+*.pem
+*.key
 
-# Docker
-*.pid
-*.sock
+# Runtime outputs; keep code and documentation in robopoint_runtime tracked
+results/
+runs/
+robopoint_runtime/cache/
+robopoint_runtime/smoke_*/
+.ultralytics/
+sam3_worker_candidates.jpg
 
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.bak
-*.backup
-
-# Model checkpoints and data
+# Local model weights, downloaded data and simulation assets
 *.pth
 *.ckpt
 *.pt
 *.safetensors
 checkpoints/
-data/
-datasets/
+weights/
+models/
+/data/
+/datasets/
+*.usd
+*.usda
+*.usdc
+*.usdz
 
-# OS specific
-.DS_Store
-Thumbs.db
-
-wit_token.txt
-
-*.jpg
-
-# Video files
+# Recordings and ROS bags; images used as source examples remain trackable
 *.mp4
 *.mov
 *.avi
@@ -80,10 +88,16 @@ wit_token.txt
 *.flv
 *.mpeg
 *.mpg
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap
 
-*.usd
-
-install/
-.cache/
-/install/
-.cache/
+# Transient files
+*.pid
+*.sock
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup

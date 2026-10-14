@@ -69,6 +69,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-realsense2-camera \
       ros-humble-realsense2-camera-msgs \
       ros-humble-realsense2-description \
+      ros-humble-image-transport-plugins \
+      ros-humble-cv-bridge \
       python3-colcon-common-extensions \
       python3-rosdep \
       python3-argcomplete \
@@ -123,7 +125,7 @@ RUN printf '%s\n' "if [ -f ~/.bashrc ]; then" \
 
 # Python deps
 # - 先行安裝 triton 依賴：sympy / mpmath，避免卸載 apt 版 sympy 失敗
-# - Torch 使用 CUDA 12.1 的輪檔
+# - Torch 使用 CUDA 12.8 的輪檔
 # - Transformers 與影像處理相關套件
 RUN pip3 install 'pip<25' 'setuptools<80,>=68' 'wheel>=0.40' 'packaging>=24.0' && \
     # 以 constraints 鎖定 numpy<2，避免後續安裝升級為 2.x
@@ -152,10 +154,9 @@ WORKDIR /workspace
 # Copy entire project into the image
 COPY . /workspace
 
-# Bootstrap a ros2_ws (non-fatal if empty)
-RUN mkdir -p /workspace/ros2_ws/src && \
-    source /opt/ros/${ROS_DISTRO}/setup.bash && \
-    cd /workspace/ros2_ws && colcon build --symlink-install || true
+# Build the selected ROS packages explicitly after mounting the workspace.
+# See docs/USAGE.md; optional robot/audio packages have separate dependencies.
+RUN mkdir -p /workspace/ros2_ws/src
 
 # Additional Python packages (combine to one layer)
 RUN pip3 install -c /tmp/constraints.txt \
@@ -169,9 +170,10 @@ RUN pip3 install -c /tmp/constraints.txt \
     gradio==4.16.0 \
     scikit-image \
     scikit-learn \
-    PyQt5>=5.15.0
+    'PyQt5>=5.15.0'
 RUN mkdir -p /etc/udev/rules.d && \
     echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="0411", MODE="0666"' > /etc/udev/rules.d/99-realsense.rules && \
+    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", MODE="0666"' >> /etc/udev/rules.d/99-realsense.rules && \
     echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="8087", MODE="0666"' >> /etc/udev/rules.d/99-realsense.rules
 
 # Keep container alive for interactive work (no extra shell)

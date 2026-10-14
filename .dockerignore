@@ -1,19 +1,62 @@
-# Exclude large local caches and virtual environments from build context
-.cache/
-.venv/
+# Never bake local state, credentials or repository metadata into an image
+**/.git
+**/.git/**
+.agents/
+.codex/
+.aws/
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.template
+**/*.env
+**/wit_token.txt
+**/*.pem
+**/*.key
+**/.vscode/
+**/.idea/
 
-# VCS and editor metadata
-.git/
-.gitignore
-.mypy_cache/
-__pycache__/
+# Caches, virtualenvs, build products and experiment outputs
+**/.cache/
+**/cache/
+**/.venv/
+**/.venv-*/
+**/venv/
+**/venv-*/
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/build/
+**/dist/
+**/install/
+**/log/
+**/logs/
+**/results/
+**/runs/
+robopoint_runtime/smoke_*/
+.ultralytics/
+sam3_worker_candidates.jpg
 
-# Local Python cache/artifacts
-*.pyc
-*.pyo
-*.pyd
-
-# ROS build outputs (generated locally, not source)
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
+# Models, recordings and scenes are supplied through the runtime bind mount
+**/*.safetensors
+**/*.pt
+**/*.pth
+**/*.ckpt
+**/checkpoints/
+**/weights/
+**/models/
+data/
+datasets/
+**/*.mp4
+**/*.mov
+**/*.avi
+**/*.mkv
+**/*.webm
+**/*.db3
+**/*.mcap
+**/*.usd
+**/*.usda
+**/*.usdc
+**/*.usdz

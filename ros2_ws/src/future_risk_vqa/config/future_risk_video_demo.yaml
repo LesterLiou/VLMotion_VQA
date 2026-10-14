@@ -1,0 +1,161 @@
+sam3_person_tracker:
+  ros__parameters:
+    use_sim_time: false
+    # Feature switches
+    enable_person_detection: true
+    enable_tracking: true
+    left_image_topic: /left_camera/rgb
+    right_image_topic: /right_camera/rgb
+    use_compressed_image: false
+    backend: sam3
+    # 12GB GPU: reserve VRAM for the 13B VLM; run SAM3 on CPU.
+    device: cpu
+    model_id: facebook/sam3
+    local_files_only: true
+    confidence_threshold: 0.7
+    mask_threshold: 0.5
+    max_people: 12
+    suppress_duplicate_detections: true
+    duplicate_mask_iou_threshold: 0.65
+    duplicate_bbox_iou_threshold: 0.70
+    duplicate_bbox_ioa_threshold: 0.85
+    inference_hz: 2.0
+    max_missed_frames: 5
+    minimum_match_score: 0.20
+    # Stable-ID association: timestamped velocity + position + shape similarity.
+    match_mask_iou_weight: 0.15
+    match_bbox_iou_weight: 0.20
+    match_foot_distance_weight: 0.50
+    match_size_similarity_weight: 0.15
+    match_max_foot_distance_ratio: 0.20
+    match_velocity_smoothing: 0.60
+    enable_walkway_detection: true
+    walkway_prompt: floor
+    walkway_confidence_threshold: 0.35
+    walkway_inference_interval_s: 5.0
+    show_walkway_overlay: true
+    enable_approximate_stop_zone: true
+    approximate_stop_foot_overlap_ratio: 0.05
+    left_approximate_stop_polygon_normalized: [0.20, 1.00, 0.80, 1.00, 0.635, 0.76, 0.365, 0.76]
+    right_approximate_stop_polygon_normalized: [0.20, 1.00, 0.80, 1.00, 0.635, 0.76, 0.365, 0.76]
+
+ground_trajectory:
+  ros__parameters:
+    use_sim_time: false
+    # Feature switches
+    enable_motion_prediction: true
+    enable_zone_logic: false
+    show_track_id_overlay: true
+    show_prediction_overlay: false
+    # Video-only placeholder: x=u/960, y=1-v/540. Units are not metres.
+    calibration_mode: normalized_debug
+    calibration_valid: true
+    left_homography: [0.0010416667, 0.0, 0.0, 0.0, -0.0018518519, 1.0, 0.0, 0.0, 1.0]
+    right_homography: [0.0010416667, 0.0, 0.0, 0.0, -0.0018518519, 1.0, 0.0, 0.0, 1.0]
+    hazard_polygon: [0.35, 0.0, 0.65, 0.0, 0.65, 0.28, 0.35, 0.28]
+    warning_polygon: [0.20, 0.0, 0.80, 0.0, 0.80, 0.48, 0.20, 0.48]
+    prediction_horizon_s: 3.0
+    prediction_step_s: 0.2
+    process_noise: 0.5
+    measurement_noise: 0.08
+    minimum_track_age_frames: 2
+    max_track_gap_s: 1.5
+
+future_vqa:
+  ros__parameters:
+    use_sim_time: false
+    # Feature switches
+    enable_future_vqa: true
+    include_tracking_context: true
+    show_sam3_detection_overlay: true
+    # none | overlay | numeric | both
+    trajectory_context_mode: none
+    # track_crops: one ID per row, timestamp-matched OLD/MID/NOW crops.
+    # global: original two-camera 2x3 overview for ablation.
+    storyboard_mode: track_crops
+    # per_track: one request per ID using the same VLM (recommended).
+    # joint: original single request containing every visible ID.
+    vqa_inference_mode: per_track
+    per_track_max_new_tokens: 128
+    track_history_tolerance_s: 0.75
+    track_crop_padding_ratio: 0.30
+    track_crop_cell_size: 224
+    track_crop_max_agents: 6
+    # vlm preserves the original motion answer. tracking_hint uses timestamped
+    # bbox scale/lateral change and keeps the VLM motion in audit fields.
+    motion_source: tracking_hint
+    motion_scale_change_threshold: 0.12
+    motion_lateral_displacement_threshold: 0.35
+    motion_stationary_scale_threshold: 0.04
+    motion_stationary_lateral_threshold: 0.12
+    enable_collapse_detection: false
+    collapse_min_identical_tracks: 3
+    enable_effective_confidence: true
+    unreliable_tracking_confidence_scale: 0.50
+    left_image_topic: /left_camera/rgb
+    right_image_topic: /right_camera/rgb
+    use_compressed_image: false
+    backend: llava_worker
+    controller_url: http://127.0.0.1:11000
+    model_name: ""
+    request_timeout_s: 90.0
+    request_retry_count: 2
+    request_retry_backoff_s: 1.0
+    max_new_tokens: 512
+    use_cache: false
+    vqa_hz: 0.5
+    temporal_frame_count: 3
+    temporal_window_s: 2.0
+    jpeg_quality: 90
+    work_context: >-
+      Observe what each tracked person is visibly doing now, then predict only their
+      near-future motion relative to the observing camera.
+
+future_risk_policy:
+  ros__parameters:
+    use_sim_time: false
+    # future_behavior_policy | observe_only | zone_safety_policy
+    decision_mode: future_behavior_policy
+    enable_action_output: true
+
+    # Future camera-relative motion -> action mapping
+    behavior_stop_motions: [DISABLED]
+    behavior_warning_motions: [TOWARD_CAMERA, UNCERTAIN]
+    behavior_continue_motions: [AWAY_FROM_CAMERA, LATERAL_ACROSS_VIEW, STATIONARY]
+
+    # Crop/tracking quality remains diagnostic; action uses NEXT motion only.
+    behavior_continue_confirmations_required: 1
+
+    # Zone policy thresholds (inactive while decision_mode is future_behavior_policy)
+    stop_tte_s: 1.0
+    warning_tte_s: 3.0
+    semantic_confidence_threshold: 0.55
+    require_vlm_for_continue: true
+    continue_confirmations_required: 2
+    geometry_timeout_s: 2.0
+    # Must exceed the normal end-to-end VLM inference interval.
+    semantics_timeout_s: 20.0
+    heartbeat_hz: 5.0
+
+future_risk_video_source:
+  ros__parameters:
+    use_sim_time: false
+    left_video_path: /workspace/example/video/0610_take3n4.mp4
+    right_video_path: /workspace/example/video/0610x9_v0629.mp4
+    left_image_topic: /left_camera/rgb
+    right_image_topic: /right_camera/rgb
+    use_compressed_image: false
+    loop_videos: true
+    playback_rate: 1.0
+    output_fps: 10.0
+    output_width: 960
+    output_height: 540
+    left_start_offset_s: 0.0
+    right_start_offset_s: 0.0
+
+future_risk_experiment_logger:
+  ros__parameters:
+    use_sim_time: false
+    output_root: /workspace/results/future_risk_vqa
+    run_name: video_demo
+    save_storyboards: true

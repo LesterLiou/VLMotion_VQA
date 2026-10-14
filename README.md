@@ -1,219 +1,67 @@
-# VLMotion
+# VLMotion / Risk VQA
 
-VLMotion is a ROS2-based vision-language robot control system that integrates two main packages: VLPoint and VLServo.
+這是一個 ROS 2 視覺語言研究專案：用相機辨識人、分析動作，再產生可追溯的風險提示；也保留原始的語言選點與 Stretch 機器人操作功能。
 
-## Project Structure
+**目前已實作的研究重點**是 `future_risk_vqa`：左右相機 → SAM3 人物偵測與追蹤 → OLD/MID/NOW 時序影像 → LLaVA／RoboPoint VQA → 確定性規則 → GUI 與實驗紀錄。`STOP` 等輸出是研究提示，風險 pipeline 本身沒有直接連接機器人控制器。
 
-```
+最近保留的模型實測是 2026-09-17 的本地 RoboPoint 13B checkpoint。完整即時 pipeline 尚有延遲、顯存與 JSON 格式問題；不能把單圖測試成功當作整套系統驗證完成。SAM3-native foundation VLM 另有[研究提案](docs/research/SAM3_FOUNDATION_VLM_PLAN.md)，目前沒有對應的 `foundation_vlm/` 實作。
+
+## 從哪裡開始
+
+| 目的 | 閱讀入口 |
+|---|---|
+| 安裝、單圖測試、影片／實機／Isaac 啟動 | [使用指南](docs/USAGE.md) |
+| 理解整體架構、讀程式的順序 | [架構與程式導覽](docs/ARCHITECTURE.md) |
+| 修改設定、模型、prompt、測試與更新 Git | [開發與更新 workflow](docs/WORKFLOW.md) |
+| 查 Git 遠端、同步狀態、整理決策與限制 | [專案盤點紀錄](docs/MAINTENANCE.md) |
+| 選擇詳細文件 | [文件索引](docs/README.md) |
+
+## 目錄與用途
+
+```text
 VLMotion/
-├── docker/                 # Docker container configuration
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── build.sh           # Build Docker image
-│   ├── run.sh             # Start Docker container
-│   └── stop.sh            # Stop Docker container
-├── ros2_ws/               # ROS2 workspace
-│   └── src/
-│       ├── vlpoint/       # VLPoint package (controller and worker)
-│       └── vlservo/       # VLServo package (visual servoing)
-└── environment.sh         # Environment setup script
+├── ros2_ws/src/
+│   ├── future_risk_vqa/       # 現行雙相機、人物時序與未來風險研究
+│   ├── vlpoint/               # LLaVA/RoboPoint controller、worker 與模型實作
+│   ├── risk_vqa/              # 單影片 YOLO/TTC + VLM，比較基準
+│   ├── risk_vqa_sim/          # 雙相機 temporal VQA + zone 規則，比較基準
+│   ├── white_point_pipeline/  # 語言選點、3D 轉換與機器人運動
+│   ├── vlservo/               # Stretch 視覺伺服與操作 GUI
+│   ├── audio_listener_worker/ # 遠端語音輸入（選用）
+│   └── audio_common/          # 音訊與訊息來源碼（選用，含 ROS1 歷史元件）
+├── robopoint_runtime/         # 本地新 checkpoint 的單圖／worker 測試入口
+├── sam3/                     # SAM3 Git 子模組；風險 tracker 使用的是 HF loader
+├── sam3_benchmark/           # 系統與邊緣裝置 benchmark Git 子模組
+├── docker/                  # ROS 2 Humble / CUDA 開發環境
+├── scripts/                 # 靜態檢查、CPU/ROS 測試與唯讀 Git 稽核
+├── docs/                    # 現行指南、研究提案、封存參考
+├── example/                 # 範例圖片；影片需另備
+└── isaac/                   # 本機 USD 場景，未納入 Git
 ```
 
-## System Requirements
+## 快速使用
 
-- Ubuntu 22.04
-- ROS2 Humble
-- Docker (optional)
-- Python 3.10+
-
-## Installation and Setup
-
-### Method 1: Using Docker (Recommended)
-
-1. **Build Docker Image**
-   ```bash
-   cd docker
-   ./build.sh
-   ```
-
-2. **Start Docker Container**
-   ```bash
-   ./run.sh
-   ```
-
-3. **Inside the Container, Setup Environment**
-   ```bash
-   source /workspace/environment.sh [ROS_DOMAIN_ID]
-   ```
-   - `ROS_DOMAIN_ID` is optional, defaults to 0, valid range: 0-232
-
-4. **Build ROS2 Packages**
-   ```bash
-   cd /workspace/ros2_ws
-   colcon build --symlink-install
-   source install/setup.bash
-   ```
-
-### Method 2: Local Installation
-
-1. **Install ROS2 Humble**
-   ```bash
-   # See official documentation: https://docs.ros.org/en/humble/Installation.html
-   ```
-
-2. **Setup Environment**
-   ```bash
-   source environment.sh [ROS_DOMAIN_ID]
-   ```
-
-3. **Build ROS2 Packages**
-   ```bash
-   cd ros2_ws
-   colcon build --symlink-install
-   source install/setup.bash
-   ```
-
-## Usage
-
-### Launch VLPoint Package
-
-The VLPoint package contains two main components: controller and worker.
-
-#### 1. Launch Controller
-```bash
-ros2 launch vlpoint controller.launch.py
-```
-
-#### 2. Launch Worker
-```bash
-ros2 launch vlpoint worker.launch.py
-```
-
-#### 3. Launch Complete System (Controller + Worker)
-```bash
-ros2 launch vlpoint vlpoint.launch.py
-```
-
-### Launch VLServo Package
-
-The VLServo package provides visual servoing functionality.
+Ubuntu 22.04／ROS 2 Humble／Python 3.10 是部署基礎；模型推論需要 CUDA 環境與另外準備的權重。已有容器與本地 checkpoint 時，可先做最小單圖測試：
 
 ```bash
-ros2 launch vlservo vlservoing.launch.py
+bash robopoint_runtime/run_single_image.sh \
+  --image 'example/image/image (14).png' \
+  --question 'What is the person doing?'
 ```
 
-## Typical Workflow
-
-### Full System Launch
-
-Execute the following commands in **separate terminal windows**:
-
-**Terminal 1 - Launch VLPoint Controller:**
-```bash
-source environment.sh
-cd ros2_ws
-source install/setup.bash
-ros2 launch vlpoint controller.launch.py
-```
-
-**Terminal 2 - Launch VLPoint Worker:**
-```bash
-source environment.sh
-cd ros2_ws
-source install/setup.bash
-ros2 launch vlpoint worker.launch.py
-```
-
-**Terminal 3 - Launch VLServo Visual Servoing:**
-```bash
-source environment.sh
-cd ros2_ws
-source install/setup.bash
-ros2 launch vlservo vlservoing.launch.py
-```
-
-### Launch in Docker Environment
-
-If using Docker, you can open multiple terminals inside the container:
+完整建置與多 terminal 啟動見[使用指南](docs/USAGE.md)。CPU 開發檢查：
 
 ```bash
-# On host machine
-docker exec -it vlmotion_container bash
-
-# Inside container
-source /workspace/environment.sh
-cd /workspace/ros2_ws
-source install/setup.bash
-# Then execute the corresponding launch commands
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+bash scripts/check.sh
 ```
 
-## Package Description
-
-### VLPoint
-- **controller.launch.py**: Launches the main controller node for system coordination
-- **worker.launch.py**: Launches the worker node for vision-language tasks
-- **vlpoint.launch.py**: Launches both controller and worker simultaneously
-
-### VLServo
-- **vlservoing.launch.py**: Launches the visual servoing system for robot vision-based navigation and control
-
-## Environment Variables
-
-- `ROS_DOMAIN_ID`: ROS2 domain ID (0-232), used for multi-robot or multi-system isolation
-- `ROS_DISTRO`: ROS2 distribution version (default: humble)
-- `PYTHONWARNINGS`: Python warning filter settings
-- `PIP_DISABLE_PIP_VERSION_CHECK`: Disable pip version check
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Package Not Found**
-   ```bash
-   # Make sure packages are built and environment is sourced
-   cd ros2_ws
-   colcon build --symlink-install
-   source install/setup.bash
-   ```
-
-2. **Permission Issues**
-   ```bash
-   # Check file permissions
-   sudo chmod +x docker/*.sh
-   ```
-
-3. **ROS2 Communication Issues**
-   ```bash
-   # Check if ROS_DOMAIN_ID is consistent
-   echo $ROS_DOMAIN_ID
-   
-   # Reset environment
-   source environment.sh [DOMAIN_ID]
-   ```
-
-4. **GUI Issues in Docker Container**
-   ```bash
-   # Make sure X11 forwarding is enabled
-   xhost +local:docker
-   ```
-
-## Development
-
-### Rebuild Packages
+Git 連線與最新 commit 查詢（不做 fetch、pull 或 checkout）：
 
 ```bash
-cd ros2_ws
-colcon build --symlink-install --packages-select vlpoint vlservo
-source install/setup.bash
+python3 scripts/audit_git.py --remote
 ```
 
-### Clean Build Artifacts
-
-```bash
-cd ros2_ws
-rm -rf build/ install/ log/
-```
-
-## License
-
-Apache-2.0
+主程式 origin：`git@github.com:LesterLiou/VLMotion_VQA.git`；原始 upstream：`git@github.com:tsun-chuan123/VLMotion.git`。目前開發分支為 `LesterVQA`；子模組需各自提交，再更新主專案的 commit 指標，詳見 [workflow](docs/WORKFLOW.md)。

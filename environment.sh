@@ -50,10 +50,11 @@ else
 fi
 
 # Optionally source current workspace overlay if present
-if [ -f "/workspace/ros2_ws/install/setup.bash" ]; then
+VLMOTION_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${VLMOTION_ROOT}/ros2_ws/install/setup.bash" ]; then
   # shellcheck disable=SC1091
-  source "/workspace/ros2_ws/install/setup.bash"
-  echo "Sourced /workspace/ros2_ws/install/setup.bash"
+  source "${VLMOTION_ROOT}/ros2_ws/install/setup.bash"
+  echo "Sourced ${VLMOTION_ROOT}/ros2_ws/install/setup.bash"
 fi
 
 # Optionally source Stretch3 overlay if present

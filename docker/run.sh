@@ -8,7 +8,7 @@ set -euo pipefail
 # 說明:
 #   - 若第一個非 --root 的參數是數字 (0-232)，視為 ROS_DOMAIN_ID（容器名稱使用預設）
 #   - 若第一個是名稱，第二個是數字，則分別視為 容器名稱 與 ROS_DOMAIN_ID
-# 預設容器名稱: stretch3_vla_container
+# 預設容器名稱: vlpoint-inference
 
 EXEC_USER=""
 DOMAIN_ID=""
@@ -38,6 +38,14 @@ if [[ ${#@} -gt 0 ]]; then
   fi
 fi
 
+RUNTIME_DOMAIN_ID="${DOMAIN_ID:-${ROS_DOMAIN_ID:-0}}"
+if ! is_integer "${RUNTIME_DOMAIN_ID}" || (( ${#RUNTIME_DOMAIN_ID} > 3 )) || (( 10#${RUNTIME_DOMAIN_ID} > 232 )); then
+  echo "ROS_DOMAIN_ID 必須為 0–232 的整數" >&2
+  exit 1
+fi
+# Normalize leading zeros before passing the value to environment.sh.
+RUNTIME_DOMAIN_ID=$((10#${RUNTIME_DOMAIN_ID}))
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "找不到 docker 指令，請先安裝 Docker" >&2
   exit 1
@@ -45,7 +53,8 @@ fi
 
 # 先確保服務已啟動（若尚未建立/啟動會自動 up -d）
 echo "確保 docker compose 服務已啟動（up -d）..."
-docker compose -f docker/docker-compose.yml up -d >/dev/null
+compose_file="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/docker-compose.yml"
+docker compose -f "$compose_file" up -d >/dev/null
 
 # 是否存在此容器（包含已停止）
 if ! docker ps -a --format '{{.Names}}' | grep -wq "${CONTAINER_NAME}"; then
@@ -97,13 +106,6 @@ else
 fi
 
 echo "進入容器: ${CONTAINER_NAME}"
-if [[ -n "${DOMAIN_ID}" ]]; then
-  RUNTIME_DOMAIN_ID="${DOMAIN_ID}"
-else
-  # 若使用者未指定，沿用容器內已設定值，最後 fallback 到 0
-  RUNTIME_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
-fi
-
 echo "會在容器內自動 source /workspace/environment.sh（ROS_DOMAIN_ID=${RUNTIME_DOMAIN_ID}）"
 if [[ -n "${EXEC_USER}" ]]; then
   exec docker exec "${DISPLAY_ARGS[@]}" -u "${EXEC_USER}" -it "${CONTAINER_NAME}" bash -lc \

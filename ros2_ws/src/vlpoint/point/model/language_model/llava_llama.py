@@ -30,7 +30,6 @@ from point.model.llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
 class LlavaConfig(LlamaConfig):
     model_type = "llava_llama"
     temperature: float = 0.0
-    max_new_tokens: int = 1024
     do_sample: bool = False
     top_p: Optional[float] = None
     rope_scaling: Optional[dict] = None

@@ -2,3 +2,6 @@
 	path = sam3_benchmark
 	url = git@github.com:LesterLiou/sam3_benchmark.git
 	branch = VQA
+[submodule "sam3"]
+	path = sam3
+	url = git@github.com:LesterLiou/sam3.git

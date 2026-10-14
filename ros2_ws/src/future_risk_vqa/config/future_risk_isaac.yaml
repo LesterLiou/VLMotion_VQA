@@ -1,0 +1,289 @@
+# =============================================================================
+# SAM3 人員偵測與跨影格追蹤
+# =============================================================================
+sam3_person_tracker:
+  ros__parameters:
+    # 是否使用 /clock（Isaac Sim 應為 true；真實相機且沒有 /clock 時設 false）。
+    use_sim_time: true
+    # true：執行 SAM3 person detection；false：停用偵測，後續通常不會有人員輸入。
+    enable_person_detection: true
+    # true：為每人維持 R1/L1 等跨影格 ID；false：每次偵測不保證 ID 連續。
+    enable_tracking: true
+    # 左相機影像 topic；需與實際 ROS topic 完全一致。
+    left_image_topic: /camera/left/color/image_raw
+    # 右相機影像 topic；需與實際 ROS topic 完全一致。
+    right_image_topic: /camera/right/color/image_raw
+    # true：topic 型別為 sensor_msgs/CompressedImage；false：sensor_msgs/Image。
+    use_compressed_image: false
+    # 可選 sam3、disabled；disabled 不載入模型。
+    backend: sam3
+    # 推論裝置，例如 cuda、cuda:0、cpu；CPU 可用但會明顯變慢。
+    # 12GB GPU: reserve VRAM for the 13B VLM; run SAM3 on CPU.
+    device: cpu
+    # Hugging Face 模型 ID 或本機模型路徑。
+    model_id: facebook/sam3
+    # true：只讀本機快取，離線安全但缺模型會啟動失敗；false：允許下載。
+    local_files_only: true
+    # SAM3 detection score 門檻，範圍 0~1。
+    # 調高：減少誤抓、可能漏掉遠處/遮擋者；調低：召回更多、誤抓也增加。
+    confidence_threshold: 0.9
+    # mask 二值化門檻，範圍 0~1。
+    # 調高：mask 較緊；調低：mask 較完整但較容易吃到背景，建議每次調 0.05。
+    mask_threshold: 0.5
+    # 每台相機單幀最多保留的人數；調高會增加追蹤與 storyboard 負擔。
+    max_people: 6
+    # true：合併同一人的重複 mask/bbox；多人緊靠時若誤合併可先設 false 診斷。
+    suppress_duplicate_detections: true
+    # 兩個 mask 的 IoU 高於此值視為可能重複，範圍 0~1。
+    # 調低：更積極去重；調高：較不會誤合併靠近的人。
+    duplicate_mask_iou_threshold: 0.65
+    # 兩個 bbox 的 IoU 高於此值視為可能重複，範圍 0~1。
+    duplicate_bbox_iou_threshold: 0.70
+    # bbox intersection-over-area 門檻，用於一個框幾乎包住另一框的情況。
+    # 調低：更積極去除內含框；調高：保留更多候選。
+    duplicate_bbox_ioa_threshold: 0.85
+    # SAM3 每秒推論次數。調高：反應快但 GPU 負載高；調低：省資源但追蹤更新慢。
+    inference_hz: 2.0
+    # 偵測暫時消失後保留 track 的最大推論幀數。
+    # 調高：遮擋時 ID 較穩但殘影久；調低：清除快但 ID 容易重建。
+    max_missed_frames: 5
+    # detection 與既有 track 配對的最低綜合分數。
+    # 調高：避免串錯 ID、但容易斷 ID；調低：ID 延續較容易、但可能換錯人。
+    minimum_match_score: 0.20
+    # 配對分數中 mask IoU 權重；所有 match_*_weight 建議合計約 1。
+    match_mask_iou_weight: 0.15
+    # 配對分數中 bbox IoU 權重；固定鏡頭、移動慢時可提高。
+    match_bbox_iou_weight: 0.20
+    # 配對分數中腳點距離權重；目前是主要 ID 配對依據。
+    match_foot_distance_weight: 0.50
+    # 配對分數中人物框尺寸相似度權重；遠近快速變化時不宜過高。
+    match_size_similarity_weight: 0.15
+    # 允許腳點移動距離，相對於畫面對角線的比例。
+    # 調高：快速移動仍可配對、但較易串 ID；調低：較嚴格但容易斷 track。
+    match_max_foot_distance_ratio: 0.20
+    # 追蹤速度平滑係數，範圍 0~1；越高越保留舊速度、越平滑但反應越慢。
+    match_velocity_smoothing: 0.60
+    # true：SAM3額外用floor prompt找走道/地板；只做pixel語意分割，不代表公尺距離。
+    enable_walkway_detection: true
+    # SAM3 concept prompt；室內建議floor，若場景模型較適合可試walkway或aisle。
+    walkway_prompt: floor
+    # 地板mask最低分數；調低涵蓋較多但可能吃到桌椅，常用0.25~0.50。
+    walkway_confidence_threshold: 0.35
+    # 地板通常變化慢，每隔幾秒更新一次以免每幀多跑一次SAM3。
+    walkway_inference_interval_s: 5.0
+    # true：用藍色半透明mask標出SAM3找到的走道/地板。
+    show_walkway_overlay: false
+    # true：啟用紅色近場stop trapezoid；腳底點進入即STOP，不等待VQA。
+    enable_approximate_stop_zone: false
+    # 人物mask最底部15%與紅區重疊比例達此值也算進入；避免只看腳底中央點漏判單腳跨界。
+    approximate_stop_foot_overlap_ratio: 0.05
+    # normalized image座標[x1,y1,...]，左上(0,0)、右下(1,1)。
+    # 深度維持上緣y=0.76，寬度由上一版增加50%；仍須實地量測，不能當精準公尺標定。
+    left_approximate_stop_polygon_normalized: [0.20, 1.00, 0.80, 1.00, 0.635, 0.76, 0.365, 0.76]
+    right_approximate_stop_polygon_normalized: [0.20, 1.00, 0.80, 1.00, 0.635, 0.76, 0.365, 0.76]
+
+# =============================================================================
+# 腳點投影、Kalman 軌跡與 hazard/warning zone
+# =============================================================================
+ground_trajectory:
+  ros__parameters:
+    # Isaac Sim 使用 true；真實相機且沒有 /clock 時設 false。
+    use_sim_time: true
+    # true：Kalman 預測未來路徑；false：只保留目前位置。
+    enable_motion_prediction: true
+    # true：啟用 hazard/warning polygon 與 TTE；必須先完成正確 homography 校正。
+    # false：current_zone 顯示 DISABLED，polygon、TTE 不參與判斷。
+    enable_zone_logic: false
+    # 是否在輸出/預覽標出 track ID；只影響視覺化 metadata，不改決策。
+    show_track_id_overlay: true
+    # 是否畫出未來軌跡；只影響視覺化，不改實際 prediction 計算。
+    show_prediction_overlay: false
+    # 可用 normalized_debug、metric_homography。
+    # metric_homography 表示投影結果單位為公尺；需填入真實校正矩陣。
+    calibration_mode: metric_homography
+    # true：宣告校正有效；使用 zone_safety_policy 前必須是真實校正，不能只改成 true。
+    calibration_valid: false
+    # 左相機 3x3 image-footpoint → ground/world homography，按列攤平成 9 個數。
+    # 目前 identity 只是 placeholder，不可用於真實距離與 zone 判斷。
+    left_homography: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    # 右相機 3x3 homography；座標系必須和左相機及 polygon 完全相同。
+    right_homography: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    # 危險區多邊形 [x1,y1,x2,y2,...]，單位取決於 calibration_mode。
+    # 頂點依邊界順/逆時針排列；只有 enable_zone_logic=true 才生效。
+    hazard_polygon: [-0.5, 0.0, 0.5, 0.0, 0.5, 1.0, -0.5, 1.0]
+    # 警告區多邊形，通常包住 hazard_polygon；格式與座標系同上。
+    warning_polygon: [-1.0, -0.5, 1.0, -0.5, 1.0, 1.5, -1.0, 1.5]
+    # 未來路徑預測秒數。調高：看得更遠但誤差累積；調低：較穩但反應視野短。
+    prediction_horizon_s: 3.0
+    # 路徑取樣間隔秒數。調小：點更多、計算略增；調大：路徑較粗、TTE 解析度降低。
+    prediction_step_s: 0.2
+    # Kalman process noise（對速度變化/加速度的容忍）。
+    # 調高：更快跟上轉向但路徑較抖；調低：更平滑但轉向反應慢。
+    process_noise: 0.5
+    # Kalman measurement noise（對 SAM3 腳點的信任程度）。
+    # 調高：較不信任量測、輸出更平滑；調低：更貼量測、也更容易抖。
+    measurement_noise: 0.08
+    # track 至少累積幾幀才標為 tracking_reliable；調高較保守、啟用較慢。
+    minimum_track_age_frames: 2
+    # track 最後一次可見後允許保留/預測的秒數；調高可跨短遮擋但殘留較久。
+    max_track_gap_s: 1.5
+
+# =============================================================================
+# OLD/MID/NOW storyboard、VLM 回答與 camera-relative motion
+# =============================================================================
+future_vqa:
+  ros__parameters:
+    # Isaac Sim 使用 true；真實相機且沒有 /clock 時設 false。
+    use_sim_time: true
+    # true：啟用 VQA；false：backend 會改為 disabled，不呼叫 LLaVA。
+    enable_future_vqa: true
+    # 是否把 track ID、camera、tracking motion hint 放入 prompt context；建議 true。
+    include_tracking_context: true
+    # GUI 上方 NOW snapshot 是否畫 SAM3 bbox/ID；只影響顯示，不改送入模型的 crop。
+    show_sam3_detection_overlay: true
+    # 可選 none、overlay、numeric、both。
+    # none：不提供 ground trajectory；overlay：畫紫色路徑；numeric：放數值 prior；
+    # both：兩者都有。未完成真實校正時建議 none。
+    trajectory_context_mode: none
+    # 可選 global、hybrid、track_crops。
+    # global：左右相機全景時序；hybrid：全景 NOW + 各 ID crop；
+    # track_crops：每個 ID 一列 OLD/MID/NOW，最能減少多人混淆。
+    storyboard_mode: hybrid
+    # 可選 joint、per_track。
+    # joint：所有人一次回答，快但易混 ID/複製答案；per_track：每人獨立推論，較準但較慢。
+    # per_track 必須搭配 storyboard_mode=track_crops。
+    vqa_inference_mode: joint
+    # per_track 每人的最大輸出 token，程式最低 128。
+    # 現在 compact JSON 通常 128~256 足夠；調高只增加最壞延遲，不會提升視覺準確度。
+    per_track_max_new_tokens: 128
+    # 找每張 OLD/MID/NOW 影格對應 bbox 時允許的最大時間差（秒）。
+    # 調高：crop coverage 增加但框可能不同步；調低：時間更準但易 TRACK NOT FOUND。
+    track_history_tolerance_s: 0.75
+    # 人物 bbox 四周額外 padding 比例。
+    # 調高：保留環境/肢體但人物變小；調低：人物放大但容易切掉手腳。常用 0.2~0.4。
+    track_crop_padding_ratio: 0.30
+    # 每個 crop cell 的像素邊長，程式最低 96。
+    # 調高：細節較多但 storyboard、vision token/GPU 負擔增加；調低反之。
+    track_crop_cell_size: 224
+    # joint track-crop storyboard 最多放幾人；per_track 模式每次實際只處理 1 人。
+    track_crop_max_agents: 6
+    # 可選 vlm、tracking_hint。
+    # vlm：採用模型猜的方向；tracking_hint：方向必須由 OLD/MID/NOW bbox 變化支持，較可靠。
+    motion_source: tracking_hint
+    # 判為靠近/遠離所需的 bbox 高度相對變化，例如 0.12 = 12%。
+    # 調低：方向較敏感但呼吸/姿勢變化易誤判；調高：較穩但漏掉慢速靠近。
+    motion_scale_change_threshold: 0.12
+    # 判為橫向移動所需的中心位移，以平均 bbox 寬度為單位。
+    # 調低：更容易判 lateral；調高：小幅位移/框抖動不會觸發。
+    motion_lateral_displacement_threshold: 0.35
+    # 判為靜止時允許的最大 bbox 高度變化比例。
+    # 調高：更多人會被判 stationary；調低：更保守、UNCERTAIN 增加。
+    motion_stationary_scale_threshold: 0.04
+    # 判為靜止時允許的最大橫向位移（bbox 寬度倍數）。
+    # 坐著工作因頭手動作常有 bbox 抖動；調高可減少 UNCERTAIN，但可能漏掉慢速側移。
+    motion_stationary_lateral_threshold: 0.12
+    # compact回答沒有evidence，且辦公室多人常同為坐著工作；預設false避免正常相同狀態誤報。
+    # true時只產生診斷quality warning，不會改變confidence或action。
+    enable_collapse_detection: false
+    # 至少幾個 ID 答案完全相同才視為 collapse，程式最低 2。
+    # 設 2 較敏感；設 3 可避免兩個人剛好同狀態時誤報。
+    collapse_min_identical_tracks: 3
+    # true：用 crop coverage 與 tracking reliability 計算 policy 品質分數。
+    # 這不是 VLM 自評 confidence；關閉後品質分數不因缺 crop/追蹤不穩而扣分。
+    enable_effective_confidence: true
+    # tracking 不可靠時品質分數的倍率，範圍 0~1。
+    # 調低更保守、容易 warning；調高較寬鬆，但可能接受不穩定 track。
+    unreliable_tracking_confidence_scale: 0.50
+    # VQA 左相機原始影像 topic；應與 SAM3 的左 topic 對應同一影像時間軸。
+    left_image_topic: /left_camera/rgb
+    # VQA 右相機原始影像 topic。
+    right_image_topic: /right_camera/rgb
+    # true：VQA topic 為 CompressedImage；false：Image。必須符合實際 topic 型別。
+    use_compressed_image: false
+    # 可選 llava_worker、disabled。
+    backend: llava_worker
+    # LLaVA controller HTTP URL；容器內 controller 在同容器時可用 127.0.0.1。
+    controller_url: http://127.0.0.1:11000
+    # 指定 controller 中的模型名稱；空字串表示由 controller 選可用 worker。
+    model_name: ""
+    # 單次 HTTP request timeout 秒數；應大於實測 per-track 推論時間。
+    request_timeout_s: 90.0
+    # request 失敗後重試次數；調高提高暫時性故障恢復率，也增加最壞等待時間。
+    request_retry_count: 2
+    # 第一次 retry 前等待秒數；後續採倍增 backoff。
+    request_retry_backoff_s: 1.0
+    # joint 模式最大輸出 token；per_track 模式改用 per_track_max_new_tokens。
+    # compact JSON 通常不需 512，只有 joint 人數多或曾被截斷才提高。
+    max_new_tokens: 512
+    # true：允許 client 對相同 prompt+image 使用快取；研究即時畫面通常設 false。
+    use_cache: false
+    # VQA 每秒最多啟動幾個 cycle；0.5 = 每 2 秒一次。
+    # 調高更新快但 GPU/worker 壓力大；若單 cycle 比週期久，busy guard 會跳過重疊請求。
+    vqa_hz: 0.5
+    # 時序影格數；目前 prompt/storyboard 以 3 幀 OLD/MID/NOW 最清楚。
+    # 調高會增加圖片尺寸與模型負擔，且標籤不再只對應 OLD/MID/NOW。
+    temporal_frame_count: 3
+    # 時序視窗秒數；3 幀、2 秒時目標為 NOW-2s、NOW-1s、NOW。
+    # 調大較能看慢動作但舊畫面關聯下降；調小反應快但運動差異不明顯。
+    temporal_window_s: 2.0
+    # 送給 VLM 的 JPEG 品質 1~100；調高細節多/傳輸大，調低較快但小人物變糊。
+    jpeg_quality: 90
+    # 任務背景文字，會進 prompt；保持短、描述可觀察行為，避免加入控制指令或答案暗示。
+    work_context: >-
+      Observe what each tracked person is visibly doing now, then predict only their
+      near-future motion relative to the observing camera.
+
+# =============================================================================
+# NEXT motion → STOP / DANGER_WARNING / CONTINUE 決策
+# =============================================================================
+future_risk_policy:
+  ros__parameters:
+    # Isaac Sim 使用 true；真實系統且沒有 /clock 時設 false。
+    use_sim_time: true
+    # 可選 future_behavior_policy、observe_only、zone_safety_policy。
+    # future_behavior_policy：直接用 NEXT motion；observe_only：只顯示不發控制；
+    # zone_safety_policy：使用校正後位置、polygon、TTE，需有效 calibration/zone logic。
+    decision_mode: future_behavior_policy
+    # true：發布 STOP/DANGER_WARNING/CONTINUE；false：強制只做觀察輸出。
+    enable_action_output: true
+    # 未校正 hazard polygon 時，純 VQA motion 不得直接 STOP。
+    # ROS 2 Humble 無法宣告空字串陣列，因此用 DISABLED 表示停用；程式讀入後會移除它。
+    behavior_stop_motions: [DISABLED]
+    # 這些 NEXT motion 觸發 DANGER_WARNING。
+    behavior_warning_motions: [TOWARD_CAMERA, UNCERTAIN]
+    # 這些 NEXT motion 可累積安全確認並進入 CONTINUE。
+    behavior_continue_motions: [AWAY_FROM_CAMERA, LATERAL_ACROSS_VIEW, STATIONARY]
+    # motion模式只看NEXT motion；crop/tracking品質僅供diagnostic，不改變action。
+    # motion模式收到一份「所有active tracks都安全」的報告就CONTINUE。
+    behavior_continue_confirmations_required: 1
+    # zone_safety_policy 專用：預計進入 hazard zone 的時間 <= 此秒數時 STOP。
+    stop_tte_s: 1.0
+    # zone_safety_policy 專用：TTE 位於 stop_tte_s~此值時 DANGER_WARNING。
+    warning_tte_s: 3.0
+    # zone_safety_policy 專用：附近人物語意品質最低門檻。
+    semantic_confidence_threshold: 0.55
+    # zone_safety_policy 專用：true 表示沒有可靠 VLM 結果時不可 CONTINUE。
+    require_vlm_for_continue: true
+    # zone_safety_policy 專用：保留兩次安全確認。
+    continue_confirmations_required: 2
+    # geometry report 最長有效秒數；超時視為資料不可用。需大於 tracker/geometry 更新週期。
+    geometry_timeout_s: 2.0
+    # VLM semantics 最長有效秒數；需大於實測完整 pipeline 延遲。
+    # 太短會在模型仍運算時反覆 warning；太長會沿用過舊判斷。
+    semantics_timeout_s: 20.0
+    # policy 每秒發布/檢查次數；調高只提高狀態刷新率，不會讓 VLM 更快。
+    heartbeat_hz: 5.0
+
+# =============================================================================
+# 實驗資料記錄
+# =============================================================================
+future_risk_experiment_logger:
+  ros__parameters:
+    # Logger 使用牆鐘建立資料夾名稱，因此保持 false；設 true 會使 receipt time 跟模擬時鐘。
+    use_sim_time: false
+    # 容器內輸出根目錄；每次啟動會建立 timestamp_run-name 子目錄。
+    output_root: /workspace/results/future_risk_vqa
+    # 輸出資料夾名稱後綴，用來區分實驗條件；建議只用英數、底線。
+    run_name: isaac_sim
+    # true：每次 VQA storyboard 存成 JPEG，方便稽核但會增加磁碟使用。
+    save_storyboards: true

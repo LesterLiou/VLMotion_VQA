@@ -1,0 +1,84 @@
+dual_video_source:
+  ros__parameters:
+    use_sim_time: false
+    left_video_path: /workspace/example/video/0610_take3n4.mp4
+    right_video_path: /workspace/example/video/0610_take1n2.mp4
+    left_image_topic: /left_camera/rgb
+    right_image_topic: /right_camera/rgb
+    left_frame_id: left_camera_optical_frame
+    right_frame_id: right_camera_optical_frame
+    use_compressed_image: false
+    loop_videos: true
+    playback_rate: 1.0
+    output_fps: 10.0
+    output_width: 960
+    output_height: 540
+    jpeg_quality: 90
+    left_start_offset_s: 0.0
+    right_start_offset_s: 0.0
+    status_topic: /risk_vqa_sim/video_source_status
+    pause_service: /risk_vqa_sim/set_video_paused
+
+dual_camera_vqa:
+  ros__parameters:
+    use_sim_time: true
+
+    # Isaac Sim ROS 2 Camera Helper RGB topics.
+    left_image_topic: /left_camera/rgb
+    right_image_topic: /right_camera/rgb
+    use_compressed_image: false
+
+    # Existing VLMotion controller/model worker.
+    controller_url: http://127.0.0.1:11000
+    model_name: ""
+    request_timeout_s: 60.0
+    max_new_tokens: 512
+    use_cache: false
+
+    # Temporal sampling: OLD, MID, NOW for each camera.
+    evaluation_period_s: 2.0
+    sample_window_s: 2.0
+    sample_count: 3
+    minimum_temporal_span_s: 0.8
+    frame_buffer_size: 180
+    max_camera_skew_s: 0.20
+    max_frame_age_s: 2.0
+
+    jpeg_quality: 88
+    storyboard_cell_width: 448
+    storyboard_cell_height: 336
+    work_context: >-
+      A machine or robot is about to enter a shared hazard zone.
+      People may approach from either side.
+
+    observation_topic: /risk_vqa_sim/observation
+    raw_response_topic: /risk_vqa_sim/raw_model_response
+    status_topic: /risk_vqa_sim/status
+    storyboard_topic: /risk_vqa_sim/storyboard/compressed
+
+risk_decision:
+  ros__parameters:
+    use_sim_time: true
+    observation_topic: /risk_vqa_sim/observation
+    decision_topic: /risk_vqa_sim/decision
+    command_topic: /risk_vqa_sim/command
+    input_timeout_s: 5.0
+    max_evidence_age_s: 5.0
+    heartbeat_period_s: 1.0
+    person_confidence_threshold: 0.55
+    visibility_confidence_threshold: 0.55
+    clear_confirmations_required: 2
+
+risk_vqa_sim_gui:
+  ros__parameters:
+    use_sim_time: false
+    left_image_topic: /left_camera/rgb
+    right_image_topic: /right_camera/rgb
+    use_compressed_image: false
+    storyboard_topic: /risk_vqa_sim/storyboard/compressed
+    observation_topic: /risk_vqa_sim/observation
+    decision_topic: /risk_vqa_sim/decision
+    vqa_status_topic: /risk_vqa_sim/status
+    video_status_topic: /risk_vqa_sim/video_source_status
+    raw_response_topic: /risk_vqa_sim/raw_model_response
+    pause_service: /risk_vqa_sim/set_video_paused

@@ -3,6 +3,7 @@ A model worker executes the model.
 """
 import argparse
 import asyncio
+import copy
 import contextlib
 import json
 import re
@@ -24,7 +25,7 @@ from point.utils import (build_logger, server_error_msg,
 from point.model.builder import load_pretrained_model
 from point.mm_utils import process_images, load_image_from_base64, tokenizer_image_token
 from point.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
-from transformers import TextIteratorStreamer
+from transformers import GenerationConfig, TextIteratorStreamer
 from threading import Thread
 from PIL import ImageDraw, ImageStat
 
@@ -1275,10 +1276,17 @@ class ModelWorker:
             yield json.dumps({"text": ori_prompt + "Exceeds max token length. Please start a new conversation, thanks.", "error_code": 0}).encode() + b"\0"
             return
 
+        # Some checkpoints persist max_length=4096 in generation_config. We govern
+        # response length with max_new_tokens, so reset the copied legacy limit to the
+        # Transformers default and avoid the misleading "both are set" warning.
+        generation_config = copy.deepcopy(model.generation_config)
+        generation_config.max_length = GenerationConfig().max_length
+        generation_config.max_new_tokens = None
         generation_kwargs = dict(
             inputs=input_ids,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
+            generation_config=generation_config,
             streamer=streamer,
             use_cache=use_cache,
             **image_args

@@ -16,5 +16,5 @@ fi
 
 # Revoke local root X access if xhost exists (best-effort)
 if command -v xhost >/dev/null 2>&1; then
-  xhost -local:root >/dev/null 2>&1 || true
+  xhost -SI:localuser:root >/dev/null 2>&1 || true
 fi

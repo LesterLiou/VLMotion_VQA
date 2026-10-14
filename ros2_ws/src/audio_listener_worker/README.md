@@ -42,7 +42,7 @@ sudo apt-get install ros-humble-speech-recognition-msgs
 在 ROS2 workspace 中建置：
 
 ```bash
-cd ~/vla/VLMotion/ros2_ws
+cd /path/to/VLMotion/ros2_ws
 colcon build --packages-select audio_listener_worker
 source install/setup.bash
 ```
@@ -209,6 +209,10 @@ audio_listener_worker:
 ros2 launch audio_listener_worker audio_listener.launch.py \
   config_file:=/path/to/config/audio_listener.yaml
 ```
+
+## 維護與驗證
+
+這是選用語音功能；現行操作以本 README 為入口，整合檢查見 [INTEGRATION_TEST](INTEGRATION_TEST.md)。重複的建立摘要已移除；遠端位址需依實際部署修改，不代表本次已驗證連線。
 
 ## 許可證
 

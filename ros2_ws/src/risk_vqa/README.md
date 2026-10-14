@@ -1,5 +1,7 @@
 # risk_vqa
 
+> 2026-10-14 定位：本套件保留作單影片 YOLO/TTC + VLM 基準。現行人物時序研究入口是 [future_risk_vqa](../future_risk_vqa/README.md)，全專案操作以[使用指南](../../../docs/USAGE.md)為準。下列模型設定與測試結果屬本套件情境。
+
 `risk_vqa` 是一個 ROS 2 視覺風險分析 package，目前提供兩種用途：
 
 | 模式 | 輸入 | 主要功能 |
@@ -15,7 +17,7 @@
 
 ## 1. 快速開始：影片 GUI + 即時層 + VLM
 
-這是目前最完整的執行方式。系統會在每個影片影格執行 YOLO/TTC，並每隔 2 秒把
+這是此基準套件的完整影片執行方式。系統會在每個影片影格執行 YOLO/TTC，並每隔 2 秒把
 最新影格交給 LLaVA 做 person-semantic VQA。
 
 ### 1.1 Build
